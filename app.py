@@ -3,68 +3,74 @@ import pandas as pd
 import zipfile
 import io
 
-st.set_page_config(page_title="Weekly Data Splitter", layout="centered")
+st.set_page_config(page_title="Découpage Hebdomadaire", layout="centered")
 
-st.title("📅 Weekly Data Splitter")
-st.write("Upload your export CSV, and this app will split it into weekly files (Monday to Sunday) and pack them into a single ZIP for easy download.")
+st.title("📅 Découpeur de Données Hebdomadaire (Multi-fichiers)")
+st.write("Uploadez un ou plusieurs fichiers CSV. L'application va les fusionner, puis les découper en fichiers hebdomadaires (du lundi au dimanche) regroupés dans un seul fichier ZIP.")
 
-# File uploader
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+# Le paramètre accept_multiple_files=True permet d'uploader plusieurs fichiers
+uploaded_files = st.file_uploader("Uploadez vos fichiers CSV", type=["csv"], accept_multiple_files=True)
 
-if uploaded_file is not None:
+if uploaded_files: # Si la liste des fichiers n'est pas vide
     try:
-        # 1. Read the uploaded CSV
-        df = pd.read_csv(uploaded_file)
+        with st.spinner("Lecture et fusion des fichiers en cours..."):
+            # 1. Lire et combiner tous les fichiers CSV uploadés
+            dataframes = []
+            for file in uploaded_files:
+                df_temp = pd.read_csv(file)
+                dataframes.append(df_temp)
+            
+            # Fusionner toutes les données en un seul DataFrame
+            df = pd.concat(dataframes, ignore_index=True)
         
-        st.write("### Data Preview")
+        st.write("### Aperçu des données fusionnées")
         st.dataframe(df.head())
+        st.write(f"**Total des lignes combinées :** {len(df)}")
         
-        # 2. Identify the date column based on the provided mapping
+        # 2. Identifier la colonne de date
         date_col = 'order day'
         
         if date_col not in df.columns:
-            st.error(f"Error: Could not find the '{date_col}' column in the uploaded file. Please check your CSV.")
+            st.error(f"Erreur : Impossible de trouver la colonne '{date_col}' dans les fichiers uploadés. Veuillez vérifier vos CSV.")
         else:
-            with st.spinner("Processing and splitting data..."):
-                # Convert the 'order day' column to datetime objects
+            with st.spinner("Découpage des données par semaine..."):
+                # Convertir la colonne 'order day' en objets datetime
                 df[date_col] = pd.to_datetime(df[date_col])
                 
-                # Get the ISO week number (ISO weeks start on Monday and end on Sunday)
-                # We also get the year to prevent mixing weeks if data spans across different years
+                # Obtenir le numéro de semaine ISO (du Lundi au Dimanche) et l'année
                 df['Week_Number'] = df[date_col].dt.isocalendar().week
                 df['Year'] = df[date_col].dt.isocalendar().year
                 
-                # Group the data by Year and Week Number
+                # Grouper les données par Année et par Numéro de Semaine
                 grouped = df.groupby(['Year', 'Week_Number'])
                 
-                # 3. Create an in-memory ZIP file buffer
+                # 3. Créer un buffer ZIP en mémoire
                 zip_buffer = io.BytesIO()
                 
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     for (year, week), group in grouped:
-                        # Drop the temporary Week and Year columns before exporting
+                        # Supprimer les colonnes temporaires avant l'export
                         clean_group = group.drop(columns=['Week_Number', 'Year'])
                         
-                        # Convert the week's dataframe to CSV format in memory
+                        # Convertir le dataframe de la semaine en format CSV en mémoire
                         csv_data = clean_group.to_csv(index=False)
                         
-                        # Create the requested file name: "data week x.csv"
-                        # Added year to the name to avoid overwriting if the file has data from multiple years
+                        # Créer le nom du fichier : "data week x_année.csv"
                         file_name = f"data week {week}_{year}.csv"
                         
-                        # Write the CSV data into the ZIP file
+                        # Écrire les données CSV dans le fichier ZIP
                         zip_file.writestr(file_name, csv_data)
                 
-                st.success("✅ Data successfully split by week!")
+                st.success("✅ Données fusionnées et découpées par semaine avec succès !")
                 
-                # 4. Provide the 1-click download button for the ZIP
+                # 4. Bouton de téléchargement en 1 clic
                 st.download_button(
-                    label="📥 Download All Weekly Files (ZIP)",
+                    label="📥 Télécharger toutes les semaines (ZIP)",
                     data=zip_buffer.getvalue(),
-                    file_name="weekly_data_export.zip",
+                    file_name="donnees_hebdomadaires.zip",
                     mime="application/zip",
                     use_container_width=True
                 )
                 
     except Exception as e:
-        st.error(f"An error occurred while processing the file: {e}")
+        st.error(f"Une erreur s'est produite lors du traitement des fichiers : {e}")
